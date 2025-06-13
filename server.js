@@ -1,4 +1,4 @@
-// backend/server.js - MÜŞTERİ ÖZEL ALANLARINI (ATTRIBUTES) ÇEKEN VERSİYON
+// backend/server.js - 400 HATASI DÜZELTİLMİŞ VERSİYON
 
 const express = require('express');
 const axios = require('axios');
@@ -35,7 +35,7 @@ app.get('/api/customers', async (req, res) => {
     }
 });
 
-// Belirli bir müşterinin detaylı verisini (özel alanlarla birlikte) döndüren endpoint
+// Belirli bir müşterinin detaylı verisini döndüren endpoint
 app.get('/api/customer/:id', async (req, res) => {
     const { id } = req.params;
     try {
@@ -43,8 +43,8 @@ app.get('/api/customer/:id', async (req, res) => {
         const authResponse = await axios.post(AUTH_URL, params);
         const accessToken = authResponse.data.access_token;
 
-        // !!!!!!! İŞTE GÜNCELLEME BURADA !!!!!!!
-        // "attributes" alanını sorguya ekliyoruz.
+        // !!!!!!! İŞTE DÜZELTME BURADA !!!!!!!
+        // listCustomer sorgusundan gereksiz olan "pagination" argümanını kaldırdık.
         const query = `
           query GetCustomerById($merchantId: StringFilterInput!, $customerId: StringFilterInput!) {
             listCustomer(merchantId: $merchantId, id: $customerId) {
