@@ -1,4 +1,4 @@
-// backend/server.js - TÜM VERİYİ TEK SEFERDE ÇEKEN FİNAL VERSİYON
+// backend/server.js - İKİ ADIMLI SORGULAMAYI DOĞRU YAPAN FİNAL KODU
 
 const express = require('express');
 const axios = require('axios');
@@ -51,50 +51,63 @@ app.get('/api/orders/customer/:customerId', async (req, res) => {
     } catch (error) { res.status(500).json({ message: 'Siparişler alınamadı.' }); }
 });
 
-// Tek bir siparişin tüm detaylarını tek seferde çeker
+// Sipariş ve Müşteri detayını birleştirip gönderen endpoint
 app.get('/api/order/:orderId', async (req, res) => {
     const { orderId } = req.params;
     try {
-        // !!!!!!! İŞTE SON VE KESİN DÜZELTME BURASI !!!!!!!
-        // Hem adres içindeki "identityNumber" hem de müşteri üzerindeki "attributes" tek sorguda isteniyor.
-        const query = `
+        // --- 1. SİPARİŞ BİLGİSİNİ ÇEK ---
+        const orderQuery = `
             query($orderId: StringFilterInput!) {
                 listOrder(id: $orderId) {
                     data {
-                        orderNumber
-                        orderedAt
-                        totalFinalPrice
-                        currencyCode
-                        taxLines { price, rate }
-                        customer {
-                            attributes { key, value }
-                        }
+                        customerId, orderNumber, orderedAt, totalFinalPrice, currencyCode,
+                        taxLines { price, rate },
                         shippingAddress { 
-                            firstName, lastName, addressLine1, 
-                            city { name }, district { name }, phone,
+                            firstName, lastName, addressLine1, city { name }, district { name }, phone,
                             identityNumber 
-                        }
-                        paymentMethods { type, price, paymentGatewayName }
+                        },
+                        paymentMethods { type, price, paymentGatewayName },
                         orderLineItems {
-                            quantity
-                            finalPrice
+                            quantity, finalPrice,
                             variant {
-                                name
-                                brand { name }
+                                name, brand { name },
                                 variantValues { variantTypeName, variantValueName }
                             }
                         }
                     }
                 }
             }`;
-        const variables = { orderId: { eq: orderId } };
-        const data = await executeIkasQuery(query, variables);
-        const orderDetails = data.data.listOrder.data[0];
+        const orderData = await executeIkasQuery(orderQuery, { orderId: { eq: orderId } });
+        const orderDetails = orderData.data.listOrder.data[0];
         if (!orderDetails) return res.status(404).json({ message: 'Sipariş bulunamadı.' });
-        res.status(200).json(orderDetails); // Artık birleştirme yok, tek bir obje gönderiliyor.
+
+        // --- 2. MÜŞTERİ BİLGİSİNİ (ÖZEL ALANLARLA) ÇEK ---
+        const customerId = orderDetails.customerId;
+        let customerDetails = null;
+        if (customerId) {
+            // Bu sorgu, API kurallarına uygun olarak hem id hem de merchantId ile çalışır.
+            const customerQuery = `
+                query GetCustomerById($customerId: StringFilterInput!, $merchantId: StringFilterInput!) {
+                    listCustomer(id: $customerId, merchantId: $merchantId) {
+                        data {
+                            attributes { key, value }
+                        }
+                    }
+                }`;
+            const customerVariables = { customerId: { eq: customerId }, merchantId: { eq: MERCHANT_ID } };
+            const customerData = await executeIkasQuery(customerQuery, customerVariables);
+            customerDetails = customerData.data.listCustomer.data[0];
+        }
+
+        // --- 3. İKİ VERİYİ BİRLEŞTİR VE GÖNDER ---
+        res.status(200).json({
+            order: orderDetails,
+            customer: customerDetails
+        });
+
     } catch (error) {
         console.error(`!!! /api/order/${orderId} rotasında hata:`, error.message);
-        res.status(500).json({ message: 'Sipariş detayı alınamadı.' });
+        res.status(500).json({ message: 'Sipariş ve müşteri detayı birleştirilirken hata oluştu.' });
     }
 });
 
