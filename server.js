@@ -1,4 +1,4 @@
-// backend/server.js - SADECE VERİ GÖNDEREN FİNAL VERSİYON
+// backend/server.js - MÜŞTERİ ÖZEL ALANLARINI (ATTRIBUTES) ÇEKEN VERSİYON
 
 const express = require('express');
 const axios = require('axios');
@@ -35,17 +35,26 @@ app.get('/api/customers', async (req, res) => {
     }
 });
 
-// Belirli bir müşterinin detaylı verisini döndüren YENİ endpoint
+// Belirli bir müşterinin detaylı verisini (özel alanlarla birlikte) döndüren endpoint
 app.get('/api/customer/:id', async (req, res) => {
     const { id } = req.params;
     try {
         const params = new URLSearchParams({ grant_type: 'client_credentials', client_id: CLIENT_ID, client_secret: CLIENT_SECRET });
         const authResponse = await axios.post(AUTH_URL, params);
         const accessToken = authResponse.data.access_token;
+
+        // !!!!!!! İŞTE GÜNCELLEME BURADA !!!!!!!
+        // "attributes" alanını sorguya ekliyoruz.
         const query = `
           query GetCustomerById($merchantId: StringFilterInput!, $customerId: StringFilterInput!) {
             listCustomer(merchantId: $merchantId, id: $customerId) {
-              data { id, fullName, email, phone, orderCount, totalOrderPrice, note, firstOrderDate, lastOrderDate, addresses { title, addressLine1, addressLine2, district { name }, city { name }, country { name } } }
+              data { 
+                id, fullName, email, phone, orderCount,
+                attributes { 
+                  key 
+                  value 
+                } 
+              }
             }
           }
         `;
