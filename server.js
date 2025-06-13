@@ -1,4 +1,4 @@
-// backend/server.js - KULLANICININ GÖNDERDİĞİ DOĞRU DOKÜMANA GÖRE FİNAL VERSİYON
+// backend/server.js - SİPARİŞ FORMU İÇİN GÜÇLENDİRİLMİŞ FİNAL VERSİYON
 
 const express = require('express');
 const axios = require('axios');
@@ -18,18 +18,11 @@ const GRAPHQL_API_URL = 'https://api.myikas.com/api/v1/admin/graphql';
 
 app.use(cors({ origin: '*' }));
 
-// Ortak bir fonksiyon ile API isteklerini yönetelim
 const executeIkasQuery = async (query, variables) => {
     const params = new URLSearchParams({ grant_type: 'client_credentials', client_id: CLIENT_ID, client_secret: CLIENT_SECRET });
     const authResponse = await axios.post(AUTH_URL, params);
     const accessToken = authResponse.data.access_token;
-
-    const graphqlResponse = await axios.post(
-        GRAPHQL_API_URL,
-        { query, variables },
-        { headers: { 'Authorization': `Bearer ${accessToken}` } }
-    );
-
+    const graphqlResponse = await axios.post( GRAPHQL_API_URL, { query, variables }, { headers: { 'Authorization': `Bearer ${accessToken}` } });
     if (graphqlResponse.data.errors) {
         console.error("GraphQL API Hatası:", JSON.stringify(graphqlResponse.data.errors, null, 2));
         throw new Error(`GraphQL Hatası: ${graphqlResponse.data.errors[0].message}`);
@@ -37,65 +30,69 @@ const executeIkasQuery = async (query, variables) => {
     return graphqlResponse.data;
 };
 
-// Müşterileri listeleyen endpoint
+// Müşterileri listeler
 app.get('/api/customers', async (req, res) => {
     try {
-        // !!!!!!! YAPI DÜZELTMESİ (1/2) !!!!!!!
-        // Filtreler artık doğrudan argüman olarak veriliyor, "filter" objesi yok.
-        const query = `
-            query listCustomers($merchantId: StringFilterInput!, $pagination: PaginationInput) {
-                listCustomer(merchantId: $merchantId, pagination: $pagination) {
-                    data { id, fullName, email, orderCount }
-                }
-            }`;
-        
-        const variables = {
-            merchantId: { eq: MERCHANT_ID },
-            pagination: { limit: 100 }
-        };
-
+        const query = `query($merchantId: StringFilterInput!) { listCustomer(merchantId: $merchantId, pagination: {limit: 100}) { data { id, fullName, email, orderCount } } }`;
+        const variables = { merchantId: { eq: MERCHANT_ID } };
         const data = await executeIkasQuery(query, variables);
         res.status(200).json(data.data.listCustomer.data);
-
     } catch (error) {
-        console.error('!!! /api/customers rotasında hata:', error.message);
         res.status(500).json({ message: 'Müşteri verileri alınamadı.' });
     }
 });
 
-// Belirli bir müşterinin detaylı verisini döndüren endpoint
-app.get('/api/customer/:id', async (req, res) => {
-    const { id } = req.params;
+// YENİ: Bir müşteriye ait siparişleri listeler
+app.get('/api/orders/customer/:customerId', async (req, res) => {
+    const { customerId } = req.params;
     try {
-        // !!!!!!! YAPI DÜZELTMESİ (2/2) !!!!!!!
-        // Filtreler artık doğrudan argüman olarak veriliyor, "filter" objesi yok.
         const query = `
-          query GetCustomerById($customerId: StringFilterInput!) {
-            listCustomer(id: $customerId) {
-              data { 
-                id, fullName, email, phone, orderCount,
-                attributes { 
-                  key 
-                  value 
-                } 
-              }
-            }
-          }
-        `;
-        
-        const variables = {
-            customerId: { eq: id }
-        };
-
+            query($customerId: StringFilterInput!) {
+                listOrder(customerId: $customerId, sort: "-orderedAt") {
+                    data { id, orderNumber, orderedAt, totalFinalPrice, status }
+                }
+            }`;
+        const variables = { customerId: { eq: customerId } };
         const data = await executeIkasQuery(query, variables);
-        const customer = data.data.listCustomer.data[0];
-        if (!customer) return res.status(404).json({ message: 'Müşteri bulunamadı' });
-        res.status(200).json(customer);
-
+        res.status(200).json(data.data.listOrder.data);
     } catch (error) {
-        console.error(`!!! /api/customer/${id} rotasında hata:`, error.message);
-        res.status(500).json({ message: 'Müşteri detayı alınamadı.' });
+        res.status(500).json({ message: 'Siparişler alınamadı.' });
     }
 });
 
-app.listen(PORT, () => console.log(`Sunucu (sadece veri) port ${PORT} üzerinde çalışıyor.`));
+// YENİ: Tek bir siparişin tüm detaylarını çeker
+app.get('/api/order/:orderId', async (req, res) => {
+    const { orderId } = req.params;
+    try {
+        const query = `
+            query($orderId: StringFilterInput!) {
+                listOrder(id: $orderId) {
+                    data {
+                        orderNumber
+                        orderedAt
+                        totalFinalPrice
+                        currencyCode
+                        customer { fullName }
+                        shippingAddress { firstName, lastName, addressLine1, addressLine2, city { name }, district { name }, phone }
+                        paymentMethods { type, price, paymentGatewayName }
+                        orderLineItems {
+                            quantity
+                            finalPrice
+                            variant {
+                                name
+                                brand { name }
+                                variantValues { variantTypeName, variantValueName }
+                            }
+                        }
+                    }
+                }
+            }`;
+        const variables = { orderId: { eq: orderId } };
+        const data = await executeIkasQuery(query, variables);
+        res.status(200).json(data.data.listOrder.data[0]);
+    } catch (error) {
+        res.status(500).json({ message: 'Sipariş detayı alınamadı.' });
+    }
+});
+
+app.listen(PORT, () => console.log(`Sunucu (Sipariş Formu) port ${PORT} üzerinde çalışıyor.`));
