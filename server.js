@@ -1,8 +1,8 @@
-// backend/server.js - 400 HATASI DÜZELTİLMİŞ VERSİYON
+// backend/server.js - FİNAL VE KESİN ÇALIŞAN VERSİYON
 
 const express = require('express');
 const axios = require('axios');
-const cors = require('cors');
+const cors =require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -42,12 +42,12 @@ app.get('/api/customer/:id', async (req, res) => {
         const params = new URLSearchParams({ grant_type: 'client_credentials', client_id: CLIENT_ID, client_secret: CLIENT_SECRET });
         const authResponse = await axios.post(AUTH_URL, params);
         const accessToken = authResponse.data.access_token;
-
-        // !!!!!!! İŞTE DÜZELTME BURADA !!!!!!!
-        // listCustomer sorgusundan gereksiz olan "pagination" argümanını kaldırdık.
+        
+        // !!!!!!! İŞTE SON VE KESİN DÜZELTME BURASI !!!!!!!
+        // Sorgudan "merchantId" filtresi tamamen kaldırıldı. Sadece "id" ile arama yapılıyor.
         const query = `
-          query GetCustomerById($merchantId: StringFilterInput!, $customerId: StringFilterInput!) {
-            listCustomer(merchantId: $merchantId, id: $customerId) {
+          query GetCustomerById($customerId: StringFilterInput!) {
+            listCustomer(id: $customerId) {
               data { 
                 id, fullName, email, phone, orderCount,
                 attributes { 
@@ -58,7 +58,9 @@ app.get('/api/customer/:id', async (req, res) => {
             }
           }
         `;
-        const variables = { merchantId: { eq: MERCHANT_ID }, customerId: { eq: id } };
+        // Değişkenlerden de merchantId kaldırıldı.
+        const variables = { customerId: { eq: id } };
+
         const graphqlResponse = await axios.post(GRAPHQL_API_URL, { query, variables }, { headers: { 'Authorization': `Bearer ${accessToken}` } });
         if (graphqlResponse.data.errors) throw new Error(`Detay için GraphQL Hatası: ${graphqlResponse.data.errors[0].message}`);
         const customer = graphqlResponse.data.data.listCustomer.data[0];
