@@ -1,8 +1,8 @@
-// backend/server.js - FİNAL VE KESİN ÇALIŞAN VERSİYON
+// backend/server.js - KULLANICININ GÖNDERDİĞİ DOĞRU DOKÜMANA GÖRE FİNAL VERSİYON
 
 const express = require('express');
 const axios = require('axios');
-const cors =require('cors');
+const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -18,17 +18,45 @@ const GRAPHQL_API_URL = 'https://api.myikas.com/api/v1/admin/graphql';
 
 app.use(cors({ origin: '*' }));
 
+// Ortak bir fonksiyon ile API isteklerini yönetelim
+const executeIkasQuery = async (query, variables) => {
+    const params = new URLSearchParams({ grant_type: 'client_credentials', client_id: CLIENT_ID, client_secret: CLIENT_SECRET });
+    const authResponse = await axios.post(AUTH_URL, params);
+    const accessToken = authResponse.data.access_token;
+
+    const graphqlResponse = await axios.post(
+        GRAPHQL_API_URL,
+        { query, variables },
+        { headers: { 'Authorization': `Bearer ${accessToken}` } }
+    );
+
+    if (graphqlResponse.data.errors) {
+        console.error("GraphQL API Hatası:", JSON.stringify(graphqlResponse.data.errors, null, 2));
+        throw new Error(`GraphQL Hatası: ${graphqlResponse.data.errors[0].message}`);
+    }
+    return graphqlResponse.data;
+};
+
 // Müşterileri listeleyen endpoint
 app.get('/api/customers', async (req, res) => {
     try {
-        const params = new URLSearchParams({ grant_type: 'client_credentials', client_id: CLIENT_ID, client_secret: CLIENT_SECRET });
-        const authResponse = await axios.post(AUTH_URL, params);
-        const accessToken = authResponse.data.access_token;
-        const query = `query($merchantId: StringFilterInput!) { listCustomer(merchantId: $merchantId, pagination: {limit: 100}) { data { id, fullName, email, orderCount } } }`;
-        const variables = { merchantId: { eq: MERCHANT_ID } };
-        const graphqlResponse = await axios.post(GRAPHQL_API_URL, { query, variables }, { headers: { 'Authorization': `Bearer ${accessToken}` } });
-        if (graphqlResponse.data.errors) throw new Error(`GraphQL Hatası: ${graphqlResponse.data.errors[0].message}`);
-        res.status(200).json(graphqlResponse.data.data.listCustomer.data);
+        // !!!!!!! YAPI DÜZELTMESİ (1/2) !!!!!!!
+        // Filtreler artık doğrudan argüman olarak veriliyor, "filter" objesi yok.
+        const query = `
+            query listCustomers($merchantId: StringFilterInput!, $pagination: PaginationInput) {
+                listCustomer(merchantId: $merchantId, pagination: $pagination) {
+                    data { id, fullName, email, orderCount }
+                }
+            }`;
+        
+        const variables = {
+            merchantId: { eq: MERCHANT_ID },
+            pagination: { limit: 100 }
+        };
+
+        const data = await executeIkasQuery(query, variables);
+        res.status(200).json(data.data.listCustomer.data);
+
     } catch (error) {
         console.error('!!! /api/customers rotasında hata:', error.message);
         res.status(500).json({ message: 'Müşteri verileri alınamadı.' });
@@ -39,12 +67,8 @@ app.get('/api/customers', async (req, res) => {
 app.get('/api/customer/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const params = new URLSearchParams({ grant_type: 'client_credentials', client_id: CLIENT_ID, client_secret: CLIENT_SECRET });
-        const authResponse = await axios.post(AUTH_URL, params);
-        const accessToken = authResponse.data.access_token;
-        
-        // !!!!!!! İŞTE SON VE KESİN DÜZELTME BURASI !!!!!!!
-        // Sorgudan "merchantId" filtresi tamamen kaldırıldı. Sadece "id" ile arama yapılıyor.
+        // !!!!!!! YAPI DÜZELTMESİ (2/2) !!!!!!!
+        // Filtreler artık doğrudan argüman olarak veriliyor, "filter" objesi yok.
         const query = `
           query GetCustomerById($customerId: StringFilterInput!) {
             listCustomer(id: $customerId) {
@@ -58,14 +82,16 @@ app.get('/api/customer/:id', async (req, res) => {
             }
           }
         `;
-        // Değişkenlerden de merchantId kaldırıldı.
-        const variables = { customerId: { eq: id } };
+        
+        const variables = {
+            customerId: { eq: id }
+        };
 
-        const graphqlResponse = await axios.post(GRAPHQL_API_URL, { query, variables }, { headers: { 'Authorization': `Bearer ${accessToken}` } });
-        if (graphqlResponse.data.errors) throw new Error(`Detay için GraphQL Hatası: ${graphqlResponse.data.errors[0].message}`);
-        const customer = graphqlResponse.data.data.listCustomer.data[0];
+        const data = await executeIkasQuery(query, variables);
+        const customer = data.data.listCustomer.data[0];
         if (!customer) return res.status(404).json({ message: 'Müşteri bulunamadı' });
         res.status(200).json(customer);
+
     } catch (error) {
         console.error(`!!! /api/customer/${id} rotasında hata:`, error.message);
         res.status(500).json({ message: 'Müşteri detayı alınamadı.' });
